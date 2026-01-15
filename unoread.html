@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UnoRead - Minimalist RSVP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PDF.js library for document parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- Mammoth.js for .docx support -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Playfair+Display:ital,wght@0,700;1,400&family=JetBrains+Mono:wght@600&display=swap');
+        
+        :root {
+            --bg-primary: #fcfcfc;
+            --text-primary: #1a1a1a;
+            --glass-bg: rgba(255, 255, 255, 0.8);
+            --border-color: #e5e7eb;
+        }
+
+        .dark {
+            --bg-primary: #121212;
+            --text-primary: #fcfcfc;
+            --glass-bg: rgba(18, 18, 18, 0.8);
+            --border-color: #2a2a2a;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            overflow: hidden;
+            height: 100vh;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        .reader-word {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+
+        .glass {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-color: var(--border-color);
+        }
+
+        /* Minimalist Range Slider */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: var(--border-color);
+            border-radius: 2px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: var(--text-primary);
+            cursor: pointer;
+            margin-top: -7px;
+            transition: background-color 0.3s ease;
+        }
+
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .orp-letter {
+            color: #ef4444; /* Focus Point Red */
+        }
+
+        .nyt-style {
+            font-family: 'Playfair Display', serif;
+            font-style: italic;
+        }
+
+        /* Sidebar Sidebar Transitions */
+        #sidebar {
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s ease;
+            z-index: 50;
+        }
+
+        .sidebar-closed {
+            transform: translateX(-100%);
+        }
+
+        .sidebar-open {
+            transform: translateX(0);
+        }
+
+        #sidebar-content::-webkit-scrollbar {
+            width: 4px;
+        }
+        #sidebar-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        #sidebar-content::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 10px;
+        }
+
+        .thumbnail-card {
+            transition: all 0.2s ease;
+            cursor: pointer;
+            background-color: var(--bg-primary);
+            border-color: var(--border-color);
+        }
+        .thumbnail-card:hover {
+            border-color: var(--text-primary);
+            transform: scale(0.98);
+        }
+        .thumbnail-card.active {
+            border-color: #ef4444;
+            background-color: rgba(239, 68, 68, 0.1);
+        }
+
+        .logo-container svg {
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.05));
+        }
+        
+        .logo-path {
+            stroke: var(--text-primary);
+            transition: stroke 0.3s ease;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center">
+
+    <!-- Theme Toggle -->
+    <button id="theme-toggle" class="fixed top-6 right-6 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors z-50 text-gray-400 hover:text-black dark:hover:text-white">
+        <svg id="sun-icon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"></path></svg>
+        <svg id="moon-icon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+    </button>
+
+    <!-- Landing Screen -->
+    <div id="home-screen" class="w-full max-w-md px-6 text-center fade-in flex flex-col h-full justify-center">
+        <div class="flex-1 flex flex-col justify-center items-center">
+            
+            <!-- App Logo -->
+            <div class="logo-container mb-8">
+                <svg width="80" height="80" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="5" y="5" width="90" height="90" rx="28" class="logo-path" stroke-width="2.5" />
+                    <path d="M35 50H45" class="logo-path" stroke-width="6" stroke-linecap="round" />
+                    <path d="M55 50H65" class="logo-path" stroke-width="6" stroke-linecap="round" />
+                    <circle cx="50" cy="50" r="5" fill="#ef4444" />
+                </svg>
+            </div>
+
+            <h1 class="text-6xl font-bold mb-4 tracking-tighter" style="font-family: 'Playfair Display', serif;">UnoRead</h1>
+            <p class="text-gray-400 dark:text-gray-500 mb-10 font-light text-lg">One word. Total focus.</p>
+            
+            <label class="group relative flex flex-col items-center justify-center w-full h-56 border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-[2.5rem] cursor-pointer hover:border-black dark:hover:border-white transition-all bg-white dark:bg-black shadow-sm hover:shadow-md">
+                <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                    <div class="w-12 h-12 bg-gray-50 dark:bg-gray-900 rounded-full flex items-center justify-center mb-4 group-hover:bg-black group-hover:text-white dark:group-hover:bg-white dark:group-hover:text-black transition-all">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    </div>
+                    <p class="mb-1 text-sm text-gray-700 dark:text-gray-300 font-medium">Upload Document</p>
+                    <p class="text-[10px] text-gray-400 dark:text-gray-600 uppercase tracking-widest">PDF, DOCX, or TXT</p>
+                </div>
+                <input id="file-upload" type="file" class="hidden" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" />
+            </label>
+            
+            <div id="loading-status" class="mt-8 hidden">
+                <div class="flex items-center justify-center space-x-2">
+                    <div class="w-1.5 h-1.5 bg-black dark:bg-white rounded-full animate-bounce"></div>
+                    <div class="w-1.5 h-1.5 bg-black dark:bg-white rounded-full animate-bounce [animation-delay:-.3s]"></div>
+                    <div class="w-1.5 h-1.5 bg-black dark:bg-white rounded-full animate-bounce [animation-delay:-.5s]"></div>
+                </div>
+                <p class="text-[10px] text-gray-400 mt-3 uppercase tracking-widest font-bold" id="status-text">Processing text</p>
+            </div>
+        </div>
+        
+        <!-- Home Footer -->
+        <footer class="py-10 text-sm nyt-style text-gray-400 dark:text-gray-600">
+            <p>Built by Agent Bean, with Love.</p>
+            <p class="text-[10px] opacity-70 mt-1 uppercase tracking-tight">all rights reserved, sudhakar at gmail dot com</p>
+        </footer>
+    </div>
+
+    <!-- Sidebar / Drawer -->
+    <div id="sidebar" class="fixed top-0 left-0 bottom-0 w-64 glass border-r sidebar-closed flex">
+        <div id="sidebar-content" class="flex-1 overflow-y-auto p-4 space-y-4">
+            <h2 class="text-xs font-bold uppercase tracking-widest text-gray-400 mb-4 px-2">Document Map</h2>
+            <div id="thumbnail-grid" class="grid grid-cols-1 gap-4 pb-20">
+                <!-- Content Map injected here -->
+            </div>
+        </div>
+        <!-- Drawer Handle -->
+        <button id="sidebar-handle" class="absolute top-1/2 -right-10 w-10 h-24 glass border border-l-0 rounded-r-2xl flex items-center justify-center shadow-sm -translate-y-1/2 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors group">
+            <div id="handle-icon" class="text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors">
+                <svg class="w-5 h-5 transition-transform duration-300" id="chevron-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+            </div>
+        </button>
+    </div>
+
+    <!-- Reader Screen -->
+    <div id="reader-screen" class="hidden fixed inset-0 flex flex-col items-center justify-center bg-transparent">
+        
+        <!-- Top Bar Controls -->
+        <div class="fixed top-0 left-0 right-0 p-6 flex flex-col items-center glass z-10 border-b">
+            <div class="w-full max-w-2xl flex items-center justify-between mb-4">
+                <button id="btn-home" class="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors flex items-center justify-center">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                </button>
+                
+                <div class="flex-1 px-8 flex flex-col items-center">
+                    <span id="wpm-display" class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">150 WPM</span>
+                    <input id="wpm-slider" type="range" min="100" max="1000" step="25" value="150" class="w-full max-w-xs">
+                </div>
+
+                <div class="w-10 flex justify-end">
+                    <svg width="20" height="20" viewBox="0 0 100 100" fill="none" class="opacity-20 dark:opacity-40">
+                         <rect x="5" y="5" width="90" height="90" rx="28" stroke="currentColor" stroke-width="10" />
+                         <circle cx="50" cy="50" r="15" fill="#ef4444" />
+                    </svg>
+                </div>
+            </div>
+            <div class="w-full max-w-2xl bg-gray-100 dark:bg-gray-800 h-1 rounded-full overflow-hidden">
+                <div id="progress-bar" class="bg-black dark:bg-white h-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- Main Display Area -->
+        <div id="word-container" class="flex flex-col items-center justify-center flex-1 w-full px-6">
+            <div id="display-word" class="reader-word text-6xl md:text-8xl lg:text-9xl text-center select-none cursor-pointer">
+                Ready?
+            </div>
+        </div>
+
+        <!-- Bottom Transport Controls -->
+        <div class="fixed bottom-12 flex flex-col items-center space-y-8">
+            <div class="flex items-center space-x-12">
+                <button id="btn-rewind" class="p-4 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-400 hover:text-black dark:hover:text-white">
+                    <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 20 20"><path d="M8.445 14.832A1 1 0 0010 14V6a1 1 0 00-1.555-.832l-6 4a1 1 0 000 1.664l6 4zM16.445 14.832A1 1 0 0018 14V6a1 1 0 00-1.555-.832l-6 4a1 1 0 000 1.664l6 4z"></path></svg>
+                </button>
+
+                <button id="btn-play-pause" class="w-20 h-20 bg-black dark:bg-white text-white dark:text-black rounded-full flex items-center justify-center shadow-2xl hover:scale-105 transition-transform active:scale-95">
+                    <svg id="play-icon" class="w-10 h-10 ml-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
+                    <svg id="pause-icon" class="w-10 h-10 hidden" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>
+                </button>
+
+                <button id="btn-forward" class="p-4 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-400 hover:text-black dark:hover:text-white">
+                    <svg class="w-7 h-7" fill="currentColor" viewBox="0 0 20 20"><path d="M4.555 5.168A1 1 0 003 6v8a1 1 0 001.555.832l6-4a1 1 0 000-1.664l-6-4zM11.555 5.168A1 1 0 0010 6v8a1 1 0 001.555.832l6-4a1 1 0 000-1.664l-6-4z"></path></svg>
+                </button>
+            </div>
+            <!-- Footer Signature -->
+            <div class="nyt-style text-gray-300 dark:text-gray-600 text-[10px] pb-2 opacity-50 hover:opacity-100 transition-opacity text-center space-y-1">
+                <p>Built by Agent Bean, with Love.</p>
+                <p class="uppercase tracking-tight">all rights reserved, sudhakar at gmail dot com</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // PDF Worker Setup
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        // Core App State
+        let words = [];
+        let pageIndices = []; 
+        let currentIndex = 0;
+        let isPlaying = false;
+        let timer = null;
+        let wpm = 150; 
+        let isSidebarOpen = false;
+        let isDarkMode = false;
+
+        // UI Selectors
+        const themeToggle = document.getElementById('theme-toggle');
+        const sunIcon = document.getElementById('sun-icon');
+        const moonIcon = document.getElementById('moon-icon');
+        const homeScreen = document.getElementById('home-screen');
+        const readerScreen = document.getElementById('reader-screen');
+        const sidebar = document.getElementById('sidebar');
+        const thumbnailGrid = document.getElementById('thumbnail-grid');
+        const sidebarHandle = document.getElementById('sidebar-handle');
+        const chevronIcon = document.getElementById('chevron-icon');
+        const fileUpload = document.getElementById('file-upload');
+        const loadingStatus = document.getElementById('loading-status');
+        const statusText = document.getElementById('status-text');
+        const displayWord = document.getElementById('display-word');
+        const wpmSlider = document.getElementById('wpm-slider');
+        const wpmDisplay = document.getElementById('wpm-display');
+        const playPauseBtn = document.getElementById('btn-play-pause');
+        const playIcon = document.getElementById('play-icon');
+        const pauseIcon = document.getElementById('pause-icon');
+        const progressBar = document.getElementById('progress-bar');
+        const homeBtn = document.getElementById('btn-home');
+        const rewindBtn = document.getElementById('btn-rewind');
+        const forwardBtn = document.getElementById('btn-forward');
+
+        // Theme Management
+        themeToggle.addEventListener('click', () => {
+            isDarkMode = !isDarkMode;
+            document.body.classList.toggle('dark', isDarkMode);
+            sunIcon.classList.toggle('hidden', !isDarkMode);
+            moonIcon.classList.toggle('hidden', isDarkMode);
+        });
+
+        // Sidebar Control
+        function toggleSidebar(force) {
+            isSidebarOpen = force !== undefined ? force : !isSidebarOpen;
+            if (isSidebarOpen) {
+                sidebar.classList.remove('sidebar-closed');
+                sidebar.classList.add('sidebar-open');
+                chevronIcon.style.transform = 'rotate(180deg)';
+            } else {
+                sidebar.classList.remove('sidebar-open');
+                sidebar.classList.add('sidebar-closed');
+                chevronIcon.style.transform = 'rotate(0deg)';
+            }
+        }
+        sidebarHandle.addEventListener('click', () => toggleSidebar());
+
+        // Document Processing Router
+        fileUpload.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            loadingStatus.classList.remove('hidden');
+            thumbnailGrid.innerHTML = '';
+            words = [];
+            pageIndices = [];
+            
+            const extension = file.name.split('.').pop().toLowerCase();
+
+            try {
+                if (extension === 'pdf') {
+                    await processPDF(file);
+                } else if (extension === 'docx') {
+                    await processDocx(file);
+                } else if (extension === 'txt') {
+                    await processTxt(file);
+                } else {
+                    showError("Unsupported file type.");
+                }
+
+                if (words.length > 0) {
+                    currentIndex = 0;
+                    showReader();
+                } else {
+                    showError("No readable text found.");
+                }
+            } catch (err) {
+                console.error(err);
+                showError("Error processing document.");
+            } finally {
+                loadingStatus.classList.add('hidden');
+            }
+        });
+
+        // Processor: PDF
+        async function processPDF(file) {
+            statusText.textContent = "Parsing PDF structure...";
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+            
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(" ");
+                const pageWords = pageText.trim().split(/\s+/).filter(w => w.length > 0);
+                
+                pageIndices.push({ pageNum: i, startIndex: words.length });
+                words.push(...pageWords);
+
+                // Render Thumbnail
+                const viewport = page.getViewport({ scale: 0.2 });
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                addThumbnail(i, canvas.toDataURL(), null, "Page");
+            }
+        }
+
+        // Processor: DOCX
+        async function processDocx(file) {
+            statusText.textContent = "Extracting Word content...";
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            chunkAndProcessText(result.value);
+        }
+
+        // Processor: TXT
+        async function processTxt(file) {
+            statusText.textContent = "Loading text file...";
+            const text = await file.text();
+            chunkAndProcessText(text);
+        }
+
+        // General Text Chunking (for non-PDF formats)
+        function chunkAndProcessText(rawText) {
+            const allWords = rawText.trim().split(/\s+/).filter(w => w.length > 0);
+            const wordsPerPage = 300;
+            const totalPages = Math.ceil(allWords.length / wordsPerPage);
+
+            for (let i = 0; i < totalPages; i++) {
+                const pageNum = i + 1;
+                const start = i * wordsPerPage;
+                const end = start + wordsPerPage;
+                const pageWords = allWords.slice(start, end);
+
+                pageIndices.push({ pageNum: pageNum, startIndex: words.length });
+                words.push(...pageWords);
+
+                const placeholderSvg = `
+                    <svg viewBox="0 0 100 130" fill="none" xmlns="http://www.w3.org/2000/svg" class="w-full h-full p-4 opacity-10">
+                        <rect x="10" y="10" width="80" height="5" rx="2.5" fill="currentColor"/>
+                        <rect x="10" y="25" width="80" height="5" rx="2.5" fill="currentColor"/>
+                        <rect x="10" y="40" width="80" height="5" rx="2.5" fill="currentColor"/>
+                        <rect x="10" y="55" width="50" height="5" rx="2.5" fill="currentColor"/>
+                        <rect x="10" y="80" width="80" height="5" rx="2.5" fill="currentColor"/>
+                        <rect x="10" y="95" width="80" height="5" rx="2.5" fill="currentColor"/>
+                    </svg>
+                `;
+                addThumbnail(pageNum, null, placeholderSvg, "Segment");
+            }
+        }
+
+        function addThumbnail(pageNum, imgSrc, svgPlaceholder, label) {
+            const thumbContainer = document.createElement('div');
+            thumbContainer.className = "thumbnail-card p-2 border rounded-xl shadow-sm";
+            thumbContainer.id = `thumb-${pageNum}`;
+            
+            const content = imgSrc 
+                ? `<img src="${imgSrc}" class="w-full h-full object-cover" />` 
+                : svgPlaceholder;
+
+            thumbContainer.innerHTML = `
+                <div class="aspect-[3/4] bg-gray-50 dark:bg-gray-900 rounded overflow-hidden mb-1 flex items-center justify-center">
+                    ${content}
+                </div>
+                <p class="text-[10px] font-bold text-gray-400 dark:text-gray-600 text-center uppercase tracking-tighter">${label} ${pageNum}</p>
+            `;
+            
+            thumbContainer.addEventListener('click', () => {
+                const pageData = pageIndices.find(p => p.pageNum === pageNum);
+                if (pageData) {
+                    currentIndex = pageData.startIndex;
+                    updateWord();
+                    toggleSidebar(false);
+                    pause();
+                }
+            });
+
+            thumbnailGrid.appendChild(thumbContainer);
+        }
+
+        // View State Management
+        function showReader() {
+            homeScreen.classList.add('hidden');
+            readerScreen.classList.remove('hidden');
+            toggleSidebar(true); 
+            setTimeout(() => toggleSidebar(false), 2000); 
+            updateWord();
+        }
+
+        function showHome() {
+            pause();
+            toggleSidebar(false);
+            readerScreen.classList.add('hidden');
+            homeScreen.classList.remove('hidden');
+            fileUpload.value = '';
+        }
+
+        function showError(msg) {
+            alert(msg);
+        }
+
+        // RSVP Engine: Formatting & Focus
+        function formatWord(word) {
+            if (word.length === 0) return "";
+            if (word.length === 1) return `<span class="orp-letter">${word}</span>`;
+            const midIndex = Math.floor((word.length - 1) / 2);
+            const prefix = word.substring(0, midIndex);
+            const mid = word[midIndex];
+            const suffix = word.substring(midIndex + 1);
+            return `${prefix}<span class="orp-letter">${mid}</span>${suffix}`;
+        }
+
+        function updateWord() {
+            if (currentIndex < 0) currentIndex = 0;
+            if (currentIndex >= words.length) {
+                currentIndex = words.length - 1;
+                pause();
+            }
+
+            const word = words[currentIndex];
+            displayWord.innerHTML = formatWord(word);
+            
+            const progress = ((currentIndex + 1) / words.length) * 100;
+            progressBar.style.width = `${progress}%`;
+
+            // Active State in Sidebar
+            const currentPage = pageIndices.reduce((prev, curr) => {
+                return (currentIndex >= curr.startIndex) ? curr : prev;
+            }, pageIndices[0]);
+
+            document.querySelectorAll('.thumbnail-card').forEach(c => c.classList.remove('active'));
+            const activeThumb = document.getElementById(`thumb-${currentPage.pageNum}`);
+            if (activeThumb) activeThumb.classList.add('active');
+        }
+
+        // Playback Engine
+        function play() {
+            if (isPlaying) return;
+            if (currentIndex >= words.length - 1) currentIndex = 0;
+            
+            isPlaying = true;
+            playIcon.classList.add('hidden');
+            pauseIcon.classList.remove('hidden');
+
+            const startTimer = () => {
+                const delay = 60000 / wpm;
+                timer = setTimeout(() => {
+                    currentIndex++;
+                    if (currentIndex >= words.length) {
+                        pause();
+                    } else {
+                        updateWord();
+                        startTimer();
+                    }
+                }, delay);
+            };
+            startTimer();
+        }
+
+        function pause() {
+            isPlaying = false;
+            playIcon.classList.remove('hidden');
+            pauseIcon.classList.add('hidden');
+            clearTimeout(timer);
+        }
+
+        function togglePlay() {
+            if (isPlaying) pause();
+            else play();
+        }
+
+        // Input Bindings
+        playPauseBtn.addEventListener('click', togglePlay);
+        displayWord.addEventListener('click', togglePlay);
+
+        wpmSlider.addEventListener('input', (e) => {
+            wpm = parseInt(e.target.value);
+            wpmDisplay.textContent = `${wpm} WPM`;
+        });
+
+        homeBtn.addEventListener('click', showHome);
+
+        rewindBtn.addEventListener('click', () => {
+            currentIndex = Math.max(0, currentIndex - 20);
+            updateWord();
+        });
+
+        forwardBtn.addEventListener('click', () => {
+            currentIndex = Math.min(words.length - 1, currentIndex + 20);
+            updateWord();
+        });
+
+        // Keyboard Controls
+        window.addEventListener('keydown', (e) => {
+            if (readerScreen.classList.contains('hidden')) return;
+            if (e.code === 'Space') {
+                e.preventDefault();
+                togglePlay();
+            } else if (e.code === 'ArrowLeft') {
+                currentIndex = Math.max(0, currentIndex - 5);
+                updateWord();
+            } else if (e.code === 'ArrowRight') {
+                currentIndex = Math.min(words.length - 1, currentIndex + 5);
+                updateWord();
+            }
+        });
+    </script>
+</body>
+</html>
